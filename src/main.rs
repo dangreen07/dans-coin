@@ -1,8 +1,7 @@
-use blockchain::database::add_block;
-use blockchain::database::initialize_database;
+use blockchain::database::BlockChain;
 use transactions::Recipient;
 use transactions::Transaction;
-use wallet::create_wallet;
+use wallet::Wallet;
 
 pub mod blockchain;
 pub mod transactions;
@@ -13,7 +12,14 @@ fn display_key(key: &[u8]) -> String {
 }
 
 fn main() {
-    let wallet = create_wallet();
+    let wallet = match Wallet::load_wallet() {
+        Ok(wallet) => wallet,
+        Err(_) => {
+            let wallet = Wallet::new();
+            wallet.save_wallet();
+            wallet
+        }
+    };
     let public_key = wallet.public_key;
     let secret_key = wallet.secret_key;
 
@@ -27,9 +33,21 @@ fn main() {
         vec![Recipient::new(public_key.to_bytes(), 1.0)],
         secret_key,
     );
-    let genesis_block = blockchain::mine_block(vec![transaction], [0; 64], 0);
-    println!("Genesis block hash: {}", hex::encode(genesis_block.hash));
+    let mut genesis_block = blockchain::Block::new(vec![transaction], [0; 64], 0, 0);
+    genesis_block.mine();
 
-    initialize_database();
-    let genesis_block = add_block(&genesis_block).unwrap();
+    let blockchain = BlockChain::new();
+    let block_id = genesis_block.hashable_block.block.id;
+    let genesis_block = match blockchain.add_block(genesis_block) {
+        Ok(genesis_block) => genesis_block,
+        Err(_) => match blockchain.get_block(block_id) {
+            Ok(genesis_block) => genesis_block,
+            Err(_) => {
+                println!("Error adding genesis block");
+                return;
+            }
+        },
+    };
+    println!("Genesis block hash: {}", hex::encode(genesis_block.hash));
+    println!("Blockchain length: {}", blockchain.length());
 }

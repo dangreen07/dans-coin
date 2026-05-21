@@ -82,53 +82,45 @@ pub struct Block {
     pub hash: [u8; 64],
 }
 
-pub fn create_block(
-    transactions: Vec<Transaction>,
-    previous_hash: [u8; 64],
-    previous_index: u64,
-    nonce: u64,
-) -> Block {
-    let index = previous_index + 1;
-    let block_data = BlockData {
-        id: index,
-        transactions: transactions,
-        previous_hash: previous_hash,
-    };
-    let hashable_block = HashableBlock {
-        block: block_data,
-        nonce: nonce,
-    };
-    let hash = hashable_block.hash();
-    Block {
-        hashable_block: hashable_block,
-        hash: hash,
+impl Block {
+    pub fn new(
+        transactions: Vec<Transaction>,
+        previous_hash: [u8; 64],
+        previous_index: u64,
+        nonce: u64,
+    ) -> Self {
+        let index = previous_index + 1;
+        let block_data = BlockData {
+            id: index,
+            transactions: transactions,
+            previous_hash: previous_hash,
+        };
+        let hashable_block = HashableBlock {
+            block: block_data,
+            nonce: nonce,
+        };
+        let hash = hashable_block.hash();
+        Block {
+            hashable_block: hashable_block,
+            hash: hash,
+        }
     }
-}
 
-pub fn mine_block(
-    transactions: Vec<Transaction>,
-    previous_hash: [u8; 64],
-    previous_index: u64,
-) -> Block {
-    let mut nonce = 0;
-    let block_data = BlockData {
-        id: previous_index + 1,
-        transactions: transactions,
-        previous_hash: previous_hash,
-    };
-    let mut hashable_block = HashableBlock {
-        block: block_data,
-        nonce: nonce,
-    };
-    let mut hash = [255; 64];
-    // The current minimum difficulty is 2 bytes
-    while hash[0..2] != [0; 2] {
-        nonce += 1;
-        hashable_block.nonce = nonce;
-        hash = hashable_block.hash();
+    pub fn mine(&mut self) {
+        let mut nonce = 0;
+        let block_data = self.hashable_block.block.clone();
+        let mut hashable_block = HashableBlock {
+            block: block_data,
+            nonce: nonce,
+        };
+        let mut hash = [255; 64];
+        // The current minimum difficulty is 2 bytes
+        while hash[0..2] != [0; 2] {
+            nonce += 1;
+            hashable_block.nonce = nonce;
+            hash = hashable_block.hash();
+        }
+        self.hashable_block = hashable_block;
+        self.hash = hash;
     }
-    return Block {
-        hashable_block: hashable_block,
-        hash: hash,
-    };
 }
