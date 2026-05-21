@@ -1,9 +1,11 @@
 use crate::transactions::{Transaction, TransactionData};
 use sha3::Digest;
 
+pub mod database;
+
 #[derive(Clone)]
 pub struct BlockData {
-    index: u64,
+    pub id: u64,
     transactions: Vec<Transaction>,
     previous_hash: [u8; 64],
 }
@@ -11,7 +13,7 @@ pub struct BlockData {
 impl BlockData {
     pub fn format(&self) -> Vec<u8> {
         let mut result = Vec::new();
-        result.extend(self.index.to_le_bytes());
+        result.extend(self.id.to_le_bytes());
         result.extend(self.transactions.len().to_le_bytes());
         for transaction in self.transactions.iter() {
             result.extend(transaction.transaction_data.format());
@@ -46,23 +48,22 @@ impl BlockData {
             .try_into()
             .unwrap();
         return BlockData {
-            index: index,
+            id: index,
             transactions: transactions,
             previous_hash: previous_hash,
         };
     }
 }
 
+#[derive(Clone)]
 pub struct HashableBlock {
-    index: u64,
-    block: BlockData,
+    pub block: BlockData,
     nonce: u64,
 }
 
 impl HashableBlock {
     pub fn format(&self) -> Vec<u8> {
         let mut result = Vec::new();
-        result.extend(self.index.to_le_bytes());
         result.extend(self.block.format());
         result.extend(self.nonce.to_le_bytes());
         return result;
@@ -75,6 +76,7 @@ impl HashableBlock {
     }
 }
 
+#[derive(Clone)]
 pub struct Block {
     pub hashable_block: HashableBlock,
     pub hash: [u8; 64],
@@ -88,12 +90,11 @@ pub fn create_block(
 ) -> Block {
     let index = previous_index + 1;
     let block_data = BlockData {
-        index: index,
+        id: index,
         transactions: transactions,
         previous_hash: previous_hash,
     };
     let hashable_block = HashableBlock {
-        index: index,
         block: block_data,
         nonce: nonce,
     };
@@ -111,18 +112,17 @@ pub fn mine_block(
 ) -> Block {
     let mut nonce = 0;
     let block_data = BlockData {
-        index: previous_index + 1,
+        id: previous_index + 1,
         transactions: transactions,
         previous_hash: previous_hash,
     };
     let mut hashable_block = HashableBlock {
-        index: previous_index + 1,
         block: block_data,
         nonce: nonce,
     };
     let mut hash = [255; 64];
     // The current minimum difficulty is 2 bytes
-    while hash[0] == 0 && hash[1] == 0 {
+    while hash[0..2] != [0; 2] {
         nonce += 1;
         hashable_block.nonce = nonce;
         hash = hashable_block.hash();

@@ -1,5 +1,7 @@
+use blockchain::database::add_block;
+use blockchain::database::initialize_database;
 use transactions::Recipient;
-use transactions::create_transaction;
+use transactions::Transaction;
 use wallet::create_wallet;
 
 pub mod blockchain;
@@ -18,7 +20,7 @@ fn main() {
     println!("Public key: {}", display_key(public_key.as_bytes()));
     println!("Secret key: {}", display_key(secret_key.as_bytes()));
 
-    let transaction = create_transaction(
+    let transaction = Transaction::create_transaction(
         public_key.to_bytes(),
         10.0,
         0.0,
@@ -27,4 +29,7 @@ fn main() {
     );
     let genesis_block = blockchain::mine_block(vec![transaction], [0; 64], 0);
     println!("Genesis block hash: {}", hex::encode(genesis_block.hash));
+
+    initialize_database();
+    let genesis_block = add_block(&genesis_block).unwrap();
 }

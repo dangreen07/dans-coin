@@ -1,5 +1,9 @@
 use ed25519_dalek::{Signer, SigningKey};
+use rusqlite::Connection;
 use sha3::Digest;
+use std::time::SystemTime;
+
+use crate::blockchain::Block;
 
 #[derive(Clone)]
 pub struct Recipient {
@@ -11,14 +15,26 @@ impl Recipient {
     pub fn new(address: [u8; 32], amount: f64) -> Self {
         Recipient { address, amount }
     }
+
+    pub fn add_to_database(
+        &self,
+        connection: &Connection,
+        transaction: &Transaction,
+    ) -> Result<usize, rusqlite::Error> {
+        let mut recipients = connection
+            .prepare("INSERT INTO recipients (address, amount, transaction_id) VALUES (?1, ?2, ?3)")
+            .unwrap();
+        recipients.execute((self.address, self.amount, transaction.hash))
+    }
 }
 
 #[derive(Clone)]
 pub struct TransactionData {
-    sender_address: [u8; 32],
-    input_amount: f64,
-    fee: f64,
-    recipients: Vec<Recipient>,
+    pub sender_address: [u8; 32],
+    pub input_amount: f64,
+    pub fee: f64,
+    pub recipients: Vec<Recipient>,
+    pub timestamp: u128,
 }
 
 impl TransactionData {
@@ -32,6 +48,7 @@ impl TransactionData {
             result.extend(recipient.address);
             result.extend(recipient.amount.to_le_bytes());
         }
+        result.extend(self.timestamp.to_le_bytes());
         return result;
     }
 
@@ -54,11 +71,17 @@ impl TransactionData {
                 amount: recipient_amount,
             });
         }
+        let timestamp: u128 = u128::from_le_bytes(
+            bytes[56 + (recipients_length + 1) * 32..56 + (recipients_length + 2) * 32]
+                .try_into()
+                .unwrap(),
+        );
         return TransactionData {
             sender_address: sender_address,
             input_amount: input_amount,
             fee: fee,
             recipients: recipients,
+            timestamp: timestamp,
         };
     }
 }
@@ -70,26 +93,48 @@ pub struct Transaction {
     pub signature: [u8; 64],
 }
 
-pub fn create_transaction(
-    sender_address: [u8; 32],
-    input_amount: f64,
-    fee: f64,
-    recipients: Vec<Recipient>,
-    secret_key: SigningKey,
-) -> Transaction {
-    let transaction = TransactionData {
-        sender_address: sender_address,
-        input_amount: input_amount,
-        fee: fee,
-        recipients: recipients,
-    };
-    let mut hasher = sha3::Keccak512::new();
-    hasher.update(transaction.format());
-    let hashed_transaction: [u8; 64] = hasher.finalize().into();
-    let signature = secret_key.sign(&hashed_transaction).to_bytes();
-    Transaction {
-        transaction_data: transaction,
-        hash: hashed_transaction,
-        signature: signature,
+impl Transaction {
+    pub fn add_to_database(
+        &self,
+        connection: &Connection,
+        block: &Block,
+    ) -> Result<usize, rusqlite::Error> {
+        let mut transactions = connection.prepare("INSERT INTO transactions (hash_id, sender_address, input_amount, fee, timestamp, block_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").unwrap();
+        transactions.execute((
+            self.hash,
+            self.transaction_data.sender_address,
+            self.transaction_data.input_amount,
+            self.transaction_data.fee,
+            self.transaction_data.timestamp.to_le_bytes(),
+            block.hashable_block.block.id as i64,
+        ))
+    }
+    pub fn create_transaction(
+        sender_address: [u8; 32],
+        input_amount: f64,
+        fee: f64,
+        recipients: Vec<Recipient>,
+        secret_key: SigningKey,
+    ) -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let transaction = TransactionData {
+            sender_address: sender_address,
+            input_amount: input_amount,
+            fee: fee,
+            recipients: recipients,
+            timestamp: timestamp,
+        };
+        let mut hasher = sha3::Keccak512::new();
+        hasher.update(transaction.format());
+        let hashed_transaction: [u8; 64] = hasher.finalize().into();
+        let signature = secret_key.sign(&hashed_transaction).to_bytes();
+        Transaction {
+            transaction_data: transaction,
+            hash: hashed_transaction,
+            signature: signature,
+        }
     }
 }
