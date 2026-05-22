@@ -4,6 +4,13 @@
 // use wallet::Wallet;
 
 use clap::Parser;
+use peers::{Message, Peer, PeerMessage};
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
+
+use crate::peers::PeerList;
 
 pub mod blockchain;
 pub mod peers;
@@ -99,12 +106,95 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let (tx, mut rx) = mpsc::channel::<PeerMessage>(100);
+
     // By default, we start a server and also try our peers
     tokio::spawn(async move {
         println!("Starting server...");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        println!("Listening on {}", address);
+
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            println!("Connection from {}", socket.peer_addr().unwrap());
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let mut buffer = [0; 1024];
+                let mut data: Vec<u8> = Vec::new();
+                loop {
+                    let n = match socket.read(&mut buffer).await {
+                        // socket closed
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(e) => {
+                            eprintln!("failed to read from socket; err = {:?}", e);
+                            return;
+                        }
+                    };
+                    data.extend_from_slice(&buffer[..n]);
+                }
+                // Now the socket is closed
+                let message = Message::convert_from_bytes(&data);
+                if (message.message_type == 0) & (message.data.len() > 0) {
+                    socket.write_all(&message.data).await.unwrap(); // Send the message back
+                    let peer = Peer::new(address.ip().to_string(), address.port());
+                    let mut peer_list = PeerList::load_peers().unwrap();
+                    peer_list.add_peer(peer.clone()).await;
+                    let message = PeerMessage::new(peer, message, true);
+                    tx.send(message).await.unwrap();
+                }
+            });
+        }
     })
     .await
     .unwrap();
+
+    tokio::spawn(async move {
+        loop {
+            // The pinging of peers is done here every 30 seconds to ensure they are still alive
+            let peer_list = PeerList::load_peers().unwrap();
+            for peer in peer_list.peers.iter() {
+                let message = "PING".as_bytes().to_vec();
+                let message = Message::new(0, message);
+                let message = message.convert_to_bytes();
+                let stream = TcpStream::connect(format!("{}:{}", peer.address, peer.port)).await;
+                let mut stream = match stream {
+                    Ok(stream) => stream,
+                    Err(_) => {
+                        // TODO: Update peer to dead
+                        continue;
+                    }
+                };
+                stream.write_all(&message).await.unwrap();
+                // Wait for a response
+                let mut buffer = [0; 1024];
+                let mut data: Vec<u8> = Vec::new();
+                loop {
+                    let n = match stream.read(&mut buffer).await {
+                        // socket closed
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(e) => {
+                            eprintln!("failed to read from socket; err = {:?}", e);
+                            return;
+                        }
+                    };
+                    data.extend_from_slice(&buffer[..n]);
+                }
+                if data.len() > 0 {
+                    let message = Message::convert_from_bytes(&data);
+                    if message.message_type == 0 {
+                        // TODO: Update peer to alive
+                        println!("Peer {} is alive", peer.address);
+                    }
+                }
+                stream.shutdown().await.unwrap();
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+    });
+
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for Ctrl+C");

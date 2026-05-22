@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Peer {
     pub address: String,
     pub port: u16,
@@ -75,5 +75,58 @@ impl PeerList {
             .unwrap()
             .as_millis();
         self.save_peers();
+    }
+}
+
+// Message types
+// 0: Test Message
+
+#[derive(Clone)]
+pub struct Message {
+    pub message_type: u16,
+    pub data: Vec<u8>,
+}
+
+impl Message {
+    pub fn new(message_type: u16, data: Vec<u8>) -> Self {
+        Message {
+            message_type: message_type,
+            data: data,
+        }
+    }
+
+    pub fn convert_to_bytes(&self) -> Vec<u8> {
+        let mut message_bytes: Vec<u8> = Vec::new();
+        let peer_message_type = self.message_type.to_le_bytes();
+        message_bytes.extend_from_slice(&peer_message_type);
+        message_bytes.extend_from_slice(&self.data);
+        return message_bytes;
+    }
+
+    pub fn convert_from_bytes(message_bytes: &[u8]) -> Self {
+        let message_type = message_bytes[0..2].to_vec();
+        let message_type = u16::from_le_bytes(message_type.try_into().unwrap());
+        let data = message_bytes[1..].to_vec();
+        Message {
+            message_type: message_type,
+            data: data,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PeerMessage {
+    recieved: bool,
+    peer: Peer,
+    message: Message,
+}
+
+impl PeerMessage {
+    pub fn new(peer: Peer, message: Message, recieved: bool) -> Self {
+        PeerMessage {
+            recieved: recieved,
+            peer: peer,
+            message: message,
+        }
     }
 }
