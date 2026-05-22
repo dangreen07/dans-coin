@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
@@ -68,13 +69,33 @@ impl PeerList {
             }
         };
         stream.write_all(b"DAN-COIN-PROTOCOL").await.unwrap();
-        // Adding the peer to the list
-        self.peers.push(peer);
-        self.last_added = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        self.save_peers();
+        let mut buffer = [0; 1024];
+        let mut data: Vec<u8> = Vec::new();
+        loop {
+            let n = match stream.read(&mut buffer).await {
+                // socket closed
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("failed to read from socket; err = {:?}", e);
+                    return;
+                }
+            };
+            data.extend_from_slice(&buffer[..n]);
+        }
+        // Now the socket is closed
+        let message = Message::convert_from_bytes(&data);
+        if (message.message_type == 0) & (message.data.len() > 0) {
+            // Adding the peer to the list
+            self.peers.push(peer);
+            self.last_added = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+            self.save_peers();
+        } else {
+            println!("Peer {} is not using the correct protocol", peer.address);
+        }
     }
 }
 
