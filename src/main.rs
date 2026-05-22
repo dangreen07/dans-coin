@@ -265,15 +265,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let ping_message = PingMessage::new(address.port(), 1);
                     let ping_message = ping_message.convert_to_bytes();
                     let ping_message = Message::new(0, ping_message).convert_to_bytes();
-                    socket.write_all(&ping_message).await.unwrap(); // Send our ping message back
-                    socket.write_all(b"\n").await.unwrap(); // Signal end of message
+                    socket.write_all(&ping_message).await.unwrap();
+                    socket.write_all(b"\n").await.unwrap();
+
                     let address = socket.peer_addr().unwrap();
-                    let recieved_ping_message = PingMessage::convert_from_bytes(&data);
+                    let recieved_ping_message = PingMessage::convert_from_bytes(&message.data);
+                    println!(
+                        "Recieved Ping Message: {}, {}",
+                        recieved_ping_message.listening_port,
+                        recieved_ping_message.protocol_version
+                    );
                     let peer = Peer::new(
                         address.ip().to_string(),
                         recieved_ping_message.listening_port,
                     );
                     let mut peer_list = PeerList::load_peers().unwrap();
+                    println!("Peer: {}:{}", peer.address, peer.port);
                     peer_list.add_peer_with_protocol(peer.clone()).await;
                     let message = PeerMessage::new(peer, message, true);
                     tx.send(message).await.unwrap();

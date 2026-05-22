@@ -90,6 +90,10 @@ impl PeerList {
             }
         };
         let ping_message = PingMessage::new(my_address.port, 1);
+        println!(
+            "Sending Ping Message: {}, {}",
+            ping_message.listening_port, ping_message.protocol_version
+        );
         let ping_message = ping_message.convert_to_bytes();
         let our_message = Message::new(0, ping_message);
         let our_message = our_message.convert_to_bytes();
@@ -145,19 +149,17 @@ impl PingMessage {
 
     pub fn convert_to_bytes(&self) -> Vec<u8> {
         let mut message_bytes: Vec<u8> = Vec::new();
-        let listening_port = self.listening_port.to_le_bytes();
-        message_bytes.extend_from_slice(&listening_port);
-        let protocol_version = self.protocol_version.to_le_bytes();
-        message_bytes.extend_from_slice(&protocol_version);
+        message_bytes.extend_from_slice(&self.listening_port.to_le_bytes());
+        message_bytes.push(self.protocol_version); // Single byte, no need for to_le_bytes
         return message_bytes;
     }
 
     pub fn convert_from_bytes(message_bytes: &[u8]) -> Self {
-        let listening_port = u16::from_le_bytes(message_bytes[0..2].try_into().unwrap());
-        let protocol_version = u8::from_le_bytes(message_bytes[2..3].try_into().unwrap());
+        let listening_port = u16::from_le_bytes([message_bytes[0], message_bytes[1]]);
+        let protocol_version = message_bytes[2];
         PingMessage {
-            listening_port: listening_port,
-            protocol_version: protocol_version,
+            listening_port,
+            protocol_version,
         }
     }
 }
@@ -192,11 +194,9 @@ impl Message {
     }
 
     pub fn convert_from_bytes(message_bytes: &[u8]) -> Self {
-        let version = message_bytes[0..1].to_vec();
-        let version = u8::from_le_bytes(version.try_into().unwrap());
-        let message_type = message_bytes[1..3].to_vec();
-        let message_type = u16::from_le_bytes(message_type.try_into().unwrap());
-        let data = message_bytes[2..].to_vec();
+        let version = u8::from_le_bytes([message_bytes[0]]);
+        let message_type = u16::from_le_bytes([message_bytes[1], message_bytes[2]]);
+        let data = message_bytes[3..].to_vec();
         Message {
             message_type: message_type,
             data: data,
