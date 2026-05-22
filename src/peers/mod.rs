@@ -59,18 +59,14 @@ impl PeerList {
         std::fs::write("peers.json", peer_list_string).unwrap();
     }
 
-    // For when we got a connection from a peer
-    pub fn add_peer(&mut self, peer: Peer) {
-        self.peers.push(peer);
-        self.last_added = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        self.save_peers();
-    }
-
     // For when we are checking the status of a peer
     pub async fn add_peer_with_protocol(&mut self, peer: Peer) {
+        // Check if the peer is already in the list
+        for peer in self.peers.iter() {
+            if peer.address == peer.address {
+                return;
+            }
+        }
         // Testing the peer connection
         let stream = TcpStream::connect(format!("{}:{}", peer.address, peer.port)).await;
         let mut stream = match stream {

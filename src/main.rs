@@ -216,7 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let (tx, _) = mpsc::channel::<PeerMessage>(100);
+    let (tx, mut rx) = mpsc::channel::<PeerMessage>(100);
 
     // By default, we start a server and also try our peers
     tokio::spawn(async move {
@@ -332,6 +332,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 stream.shutdown().await.unwrap();
             }
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+    });
+
+    tokio::spawn(async move {
+        loop {
+            let message = rx.recv().await.unwrap();
+            println!("Recieved message from {}", message.peer.address);
+            println!("Message type: {}", message.message.message_type);
         }
     });
 
