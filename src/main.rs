@@ -293,20 +293,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             // The pinging of peers is done here every 30 seconds to ensure they are still alive
             let peer_list = PeerList::load_peers().unwrap();
+            let my_address = std::fs::read_to_string("my_address.json").unwrap();
+            let my_address: Result<Peer, serde_json::Error> = serde_json::from_str(&my_address);
+            let my_address = match my_address {
+                Ok(my_address) => my_address,
+                Err(_) => {
+                    break;
+                }
+            };
             for peer in peer_list.peers.iter() {
-                let message = "PING".as_bytes().to_vec();
-                let message = Message::new(0, message);
+                let ping_message = PingMessage::new(my_address.port, 1);
+                let ping_message = ping_message.convert_to_bytes();
+                let message = Message::new(0, ping_message);
                 let message = message.convert_to_bytes();
                 println!("Pinging {}:{}", peer.address, peer.port);
                 let stream = TcpStream::connect(format!("{}:{}", peer.address, peer.port)).await;
                 let mut stream = match stream {
                     Ok(stream) => stream,
                     Err(_) => {
-                        // TODO: Update peer to dead
                         continue;
                     }
                 };
                 stream.write_all(&message).await.unwrap();
+                stream.write_all(b"\n").await.unwrap();
                 // Wait for a response
                 let mut buffer = [0; 1024];
                 let mut data: Vec<u8> = Vec::new();
@@ -321,13 +330,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
                     data.extend_from_slice(&buffer[..n]);
-                }
-                if data.len() > 0 {
-                    let message = Message::convert_from_bytes(&data);
-                    if message.message_type == 0 {
-                        // TODO: Update peer to alive
-                        println!("Peer {} is alive", peer.address);
+                    if data.ends_with(b"\n") {
+                        // Message complete
+                        data.pop(); // Remove delimiter
+                        break;
                     }
+                }
+                let message = Message::convert_from_bytes(&data);
+                if data.len() > 0 && message.message_type == 0 {
+                    println!("Peer {}:{} is alive", peer.address, peer.port);
                 }
                 stream.shutdown().await.unwrap();
             }
