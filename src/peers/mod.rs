@@ -156,8 +156,17 @@ impl PingMessage {
     }
 }
 
+pub struct SyncMessage {
+    pub data_type: u8, // 0 = Blockchain height, 1 = Transaction queue, 2 = Specific block
+    pub request: bool,
+    pub data: Vec<u8>,
+}
+
 // Message types
 // 0: Ping message, establishing peer connection
+// 1: New Transaction message, broadcasting a new transaction so that it can be added to the queue of miners
+// 2: New block message, broadcasting a new block has been mined so that everyone can add it to their chain
+// 3: Sync message, requesting any kind of sync data from a peer (this is for new peers)
 
 #[derive(Clone)]
 pub struct Message {

@@ -1,4 +1,8 @@
+use crate::blockchain::Block;
 use crate::peers::PingMessage;
+use crate::transactions::Recipient;
+use crate::transactions::Transaction;
+use crate::transactions::TransactionQueue;
 use clap::Parser;
 use clap::Subcommand;
 use peers::{Message, Peer, PeerMessage};
@@ -67,11 +71,27 @@ enum Command {
 
         #[arg(short, long)]
         create: bool,
+
+        #[arg(short, long)]
+        balance: bool,
     },
     Transactions {
         #[command(subcommand)]
         transaction_options: TransactionCommand,
     },
+    Blockchain {
+        #[command(subcommand)]
+        blockchain_options: BlockchainCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum BlockchainCommand {
+    Mine {
+        #[arg(short, long)]
+        force: bool, // Forcefully mine a block using the current transaction queue
+    },
+    Genesis, // A command that is only used once to create the genesis block
 }
 
 #[derive(Subcommand)]
@@ -122,7 +142,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(command) = cli.command {
         match command {
-            Command::Wallet { show, create } => {
+            Command::Wallet {
+                show,
+                create,
+                balance,
+            } => {
                 if create {
                     let wallet = wallet::Wallet::new();
                     wallet.save_wallet();
@@ -136,6 +160,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("Wallet not found");
                     }
                     return Ok(());
+                } else if balance {
+                    let wallet = wallet::Wallet::load_wallet();
+                    if let Ok(_) = wallet {
+                        // TODO: Display balance
+                    }
                 }
             }
             Command::Transactions {
@@ -208,6 +237,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             queue.add(transaction);
                         } else {
                             println!("Wallet not found");
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            Command::Blockchain { blockchain_options } => {
+                match blockchain_options {
+                    BlockchainCommand::Genesis => {
+                        let wallet = wallet::Wallet::load_wallet();
+                        if let Ok(wallet) = wallet {
+                            let blockchain = BlockChain::new();
+                            let wallet_address = wallet.public_key.to_bytes();
+                            let reward_transaction =
+                                Transaction::create_reward_transaction(wallet_address);
+                            let mut block = Block::new(vec![reward_transaction], [0; 64], 0, 0);
+                            block.mine();
+                            blockchain.add_block(block).unwrap();
+                        } else {
+                            println!("Wallet not found");
+                        }
+                        return Ok(());
+                    }
+                    BlockchainCommand::Mine { force } => {
+                        if force {
+                            let wallet = wallet::Wallet::load_wallet();
+                            if let Ok(wallet) = wallet {
+                                let blockchain = BlockChain::new();
+                                let transaction_queue = TransactionQueue::new();
+                                if transaction_queue.len() > 0 {
+                                    // Get the transactions from the queue
+                                    let mut transactions = transaction_queue.get();
+                                    // Add our address to the recipients from the fee
+                                    let wallet_address = wallet.public_key.to_bytes();
+                                    for transaction in transactions.iter_mut() {
+                                        transaction.transaction_data.recipients.push(
+                                            Recipient::new(
+                                                wallet_address,
+                                                transaction.transaction_data.fee,
+                                            ),
+                                        );
+                                    }
+                                    let reward_transaction =
+                                        Transaction::create_reward_transaction(wallet_address);
+                                    transactions.push(reward_transaction);
+                                    let latest_block = blockchain.get_latest_block();
+                                    if let Ok(latest_block) = latest_block {
+                                        let mut block = Block::new(
+                                            transactions,
+                                            latest_block.hash,
+                                            latest_block.hashable_block.block.id,
+                                            0,
+                                        );
+                                        block.mine();
+                                        blockchain.add_block(block).unwrap();
+                                    } else {
+                                        println!("Error getting latest block");
+                                    }
+                                } else {
+                                    println!("No transactions to mine");
+                                }
+                            } else {
+                                println!("Wallet not found");
+                            }
                         }
                     }
                 }

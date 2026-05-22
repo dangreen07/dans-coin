@@ -124,6 +124,31 @@ impl Transaction {
             block.hashable_block.block.id as i64,
         ))
     }
+
+    pub fn create_reward_transaction(recipient_address: [u8; 32]) -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let reward = 10.0;
+        let transaction = TransactionData {
+            sender_address: [0; 32],
+            input_amount: reward, // 10 coins is the reward for mining a block, plus the fees
+            fee: 0.0,
+            recipients: vec![Recipient::new(recipient_address, reward)],
+            timestamp: timestamp,
+        };
+        let mut hasher = sha3::Keccak512::new();
+        hasher.update(transaction.format());
+        let hashed_transaction: [u8; 64] = hasher.finalize().into();
+        let signature = [0; 64];
+        Transaction {
+            transaction_data: transaction,
+            hash: hashed_transaction,
+            signature: signature,
+        }
+    }
+
     pub fn create_transaction(
         sender_address: [u8; 32],
         input_amount: f64,
@@ -183,5 +208,13 @@ impl TransactionQueue {
         // Check the transactions signature and that the input + fee = output total
         self.transactions.push(transaction);
         self.save();
+    }
+
+    pub fn get(&self) -> Vec<Transaction> {
+        self.transactions.clone()
+    }
+
+    pub fn len(&self) -> usize {
+        self.transactions.len()
     }
 }

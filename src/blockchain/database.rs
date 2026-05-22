@@ -178,4 +178,77 @@ FOREIGN KEY(transaction_id) REFERENCES transactions(hash_id)
         let connection = &self.connection;
         wallet.list_transactions(connection)
     }
+
+    pub fn get_latest_block(&self) -> Result<Block, rusqlite::Error> {
+        let connection = &self.connection;
+        let mut stmt = connection
+            .prepare("SELECT * FROM blocks ORDER BY id DESC LIMIT 1")
+            .unwrap();
+        let mut block = stmt
+            .query_one(params![], |row| {
+                let hash: [u8; 64] = row.get(1).unwrap();
+                let nonce: i64 = row.get(2).unwrap();
+                let previous_hash: [u8; 64] = row.get(3).unwrap();
+                let id: i64 = row.get(0).unwrap();
+                Ok(Block {
+                    hashable_block: HashableBlock {
+                        block: BlockData {
+                            id: id as u64,
+                            transactions: Vec::new(),
+                            previous_hash: previous_hash,
+                        },
+                        nonce: nonce as u64,
+                    },
+                    hash: hash,
+                })
+            })
+            .unwrap();
+        let mut stmt = connection
+            .prepare("SELECT * FROM transactions WHERE block_id = ?1")
+            .unwrap();
+        let mut transactions = stmt
+            .query_map(params![block.hashable_block.block.id as i64], |row| {
+                let hash_id: [u8; 64] = row.get(0).unwrap();
+                let sender_address: [u8; 32] = row.get(1).unwrap();
+                let input_amount: f64 = row.get(2).unwrap();
+                let fee: f64 = row.get(3).unwrap();
+                let timestamp: u128 = u128::from_le_bytes(row.get(4).unwrap());
+                let mut transaction = Transaction {
+                    transaction_data: TransactionData {
+                        sender_address: sender_address,
+                        input_amount: input_amount,
+                        fee: fee,
+                        recipients: Vec::new(),
+                        timestamp: timestamp,
+                    },
+                    hash: hash_id,
+                    signature: [0; 64],
+                };
+                // Recipients
+                let mut stmt = connection
+                    .prepare("SELECT * FROM recipients WHERE transaction_id = ?1")
+                    .unwrap();
+                let mut recipients = stmt
+                    .query_map(params![transaction.hash], |row| {
+                        let address: [u8; 32] = row.get(0).unwrap();
+                        let amount: f64 = row.get(1).unwrap();
+                        Ok(Recipient::new(address, amount))
+                    })
+                    .unwrap();
+                while let Some(recipient) = recipients.next() {
+                    if let Ok(recipient) = recipient {
+                        transaction.transaction_data.recipients.push(recipient);
+                    }
+                }
+
+                Ok(transaction)
+            })
+            .unwrap();
+        while let Some(transaction) = transactions.next() {
+            if let Ok(transaction) = transaction {
+                block.hashable_block.block.transactions.push(transaction);
+            }
+        }
+        return Ok(block);
+    }
 }
