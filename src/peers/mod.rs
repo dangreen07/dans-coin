@@ -50,7 +50,7 @@ impl PeerList {
             }
             return Err("Error loading peers");
         }
-        return Err("Peers not found");
+        return Ok(Self::new());
     }
 
     pub fn save_peers(&self) {
