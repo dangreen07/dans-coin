@@ -1,5 +1,10 @@
+use crate::transactions::Recipient;
+use crate::transactions::Transaction;
+use crate::transactions::TransactionData;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::RngCore;
+use rusqlite::Connection;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 pub struct Wallet {
@@ -44,6 +49,51 @@ impl Wallet {
             secret_key: hex::encode(self.secret_key.to_bytes()),
             public_key: hex::encode(self.public_key.to_bytes()),
         }
+    }
+
+    pub fn list_transactions(&self, connection: &Connection) -> Vec<Transaction> {
+        let mut transactions = Vec::new();
+        let mut stmt = connection
+            .prepare("SELECT * FROM recipients WHERE address = ?1")
+            .unwrap();
+        let mut recieved_transactions = stmt
+            .query_map(params![self.public_key.to_bytes()], |row| {
+                let address: [u8; 32] = row.get(0).unwrap();
+                let amount: f64 = row.get(1).unwrap();
+                let hash_id: [u8; 64] = row.get(2).unwrap();
+                let recipient = Recipient::new(address, amount);
+                let mut stmt = connection
+                    .prepare("SELECT * FROM transactions WHERE hash_id = ?1")
+                    .unwrap();
+                let transaction = stmt
+                    .query_one(params![hash_id], |row| {
+                        let sender_address: [u8; 32] = row.get(1).unwrap();
+                        let input_amount: f64 = row.get(2).unwrap();
+                        let fee: f64 = row.get(3).unwrap();
+                        let timestamp: u128 = u128::from_le_bytes(row.get(4).unwrap());
+                        let transaction = Transaction {
+                            transaction_data: TransactionData {
+                                sender_address: sender_address,
+                                input_amount: input_amount,
+                                fee: fee,
+                                recipients: vec![recipient],
+                                timestamp: timestamp,
+                            },
+                            hash: hash_id,
+                            signature: [0; 64],
+                        };
+                        Ok(transaction)
+                    })
+                    .unwrap();
+                Ok(transaction)
+            })
+            .unwrap();
+        while let Some(transaction) = recieved_transactions.next() {
+            if let Ok(transaction) = transaction {
+                transactions.push(transaction);
+            }
+        }
+        transactions
     }
 }
 

@@ -1,11 +1,14 @@
 use ed25519_dalek::{Signer, SigningKey};
 use rusqlite::Connection;
+use serde::Deserialize;
+use serde::Serialize;
+use serde_with::{Bytes, serde_as};
 use sha3::Digest;
 use std::time::SystemTime;
 
 use crate::blockchain::Block;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Recipient {
     address: [u8; 32],
     amount: f64,
@@ -26,9 +29,18 @@ impl Recipient {
             .unwrap();
         recipients.execute((self.address, self.amount, transaction.hash))
     }
+
+    pub fn display(&self, offset: usize) {
+        println!(
+            "{}Address : {}",
+            " ".repeat(offset),
+            hex::encode(self.address)
+        );
+        println!("{}Amount  : {:.10}", " ".repeat(offset), self.amount);
+    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TransactionData {
     pub sender_address: [u8; 32],
     pub input_amount: f64,
@@ -86,10 +98,13 @@ impl TransactionData {
     }
 }
 
-#[derive(Clone)]
+#[serde_as]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub transaction_data: TransactionData,
+    #[serde_as(as = "Bytes")]
     pub hash: [u8; 64],
+    #[serde_as(as = "Bytes")]
     pub signature: [u8; 64],
 }
 
@@ -136,5 +151,37 @@ impl Transaction {
             hash: hashed_transaction,
             signature: signature,
         }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TransactionQueue {
+    transactions: Vec<Transaction>,
+}
+
+impl TransactionQueue {
+    pub fn new() -> Self {
+        let transaction_queue_json = std::fs::read_to_string("transactions.json");
+        if let Ok(transaction_queue) = transaction_queue_json {
+            let transaction_queue: Result<TransactionQueue, serde_json::Error> =
+                serde_json::from_str(&transaction_queue);
+            if let Ok(transaction_queue) = transaction_queue {
+                return transaction_queue;
+            }
+        }
+        TransactionQueue {
+            transactions: Vec::new(),
+        }
+    }
+
+    fn save(&self) {
+        let transaction_queue_string = serde_json::to_string(&self).unwrap();
+        std::fs::write("transactions.json", transaction_queue_string).unwrap();
+    }
+
+    pub fn add(&mut self, transaction: Transaction) {
+        // Check the transactions signature and that the input + fee = output total
+        self.transactions.push(transaction);
+        self.save();
     }
 }

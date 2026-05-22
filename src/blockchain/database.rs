@@ -1,5 +1,6 @@
 use crate::transactions::Recipient;
 use crate::transactions::TransactionData;
+use crate::wallet::Wallet;
 use rusqlite::Connection;
 use rusqlite::params;
 
@@ -171,5 +172,10 @@ FOREIGN KEY(transaction_id) REFERENCES transactions(hash_id)
             }
         }
         return Ok(block);
+    }
+
+    pub fn list_wallet_transactions(&self, wallet: &Wallet) -> Vec<Transaction> {
+        let connection = &self.connection;
+        wallet.list_transactions(connection)
     }
 }

@@ -4,12 +4,14 @@
 // use wallet::Wallet;
 
 use clap::Parser;
+use clap::Subcommand;
 use peers::{Message, Peer, PeerMessage};
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 
+use crate::blockchain::database::BlockChain;
 use crate::peers::PeerList;
 
 pub mod blockchain;
@@ -40,7 +42,7 @@ pub mod wallet;
 //         public_key.to_bytes(),
 //         10.0,
 //         0.0,
-//         vec![Recipient::new(public_key.to_bytes(), 1.0)],
+//         vec![Recipient::new(public_key.to_bytes(), 10.0)],
 //         secret_key,
 //     );
 //     let mut genesis_block = blockchain::Block::new(vec![transaction], [0; 64], 0, 0);
@@ -74,6 +76,39 @@ struct Cli {
     /// Turn debugging information on
     #[arg(short, long, action = clap::ArgAction::Count)]
     debug: u8,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Wallet {
+        #[arg(short, long)]
+        show: bool,
+
+        #[arg(short, long)]
+        create: bool,
+    },
+    Transactions {
+        #[command(subcommand)]
+        transaction_options: TransactionCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum TransactionCommand {
+    Me,
+    New {
+        #[arg(short, long)]
+        amount: f64,
+
+        #[arg(short, long)]
+        fee: f64,
+
+        #[arg(short, long, name = "recipient_address:amount")]
+        recipients: Vec<String>,
+    },
 }
 
 #[tokio::main]
@@ -104,6 +139,101 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         peer_list.add_peer(peers::Peer::new(address, port)).await;
         peer_list.save_peers();
         return Ok(());
+    }
+    if let Some(command) = cli.command {
+        match command {
+            Command::Wallet { show, create } => {
+                if create {
+                    let wallet = wallet::Wallet::new();
+                    wallet.save_wallet();
+                    return Ok(());
+                } else if show {
+                    let wallet = wallet::Wallet::load_wallet();
+                    if let Ok(wallet) = wallet {
+                        println!("Public key: {}", hex::encode(wallet.public_key.to_bytes()));
+                        println!("Secret key: {}", hex::encode(wallet.secret_key.to_bytes()));
+                    } else {
+                        println!("Wallet not found");
+                    }
+                    return Ok(());
+                }
+            }
+            Command::Transactions {
+                transaction_options,
+            } => {
+                match transaction_options {
+                    TransactionCommand::Me => {
+                        let wallet = wallet::Wallet::load_wallet();
+                        if let Ok(wallet) = wallet {
+                            let blockchain = BlockChain::new();
+                            let transactions = blockchain.list_wallet_transactions(&wallet);
+                            if transactions.len() == 0 {
+                                println!("No transactions found");
+                                return Ok(());
+                            }
+                            for transaction in transactions.iter() {
+                                println!("Transaction hash: {}", hex::encode(transaction.hash));
+                                println!(
+                                    "Sender address : {}",
+                                    hex::encode(transaction.transaction_data.sender_address)
+                                );
+                                println!(
+                                    "Input amount   : {:.10}",
+                                    transaction.transaction_data.input_amount
+                                );
+                                println!(
+                                    "Fee            : {:.10}",
+                                    transaction.transaction_data.fee
+                                );
+                                println!("Recipients:");
+                                for recipient in transaction.transaction_data.recipients.iter() {
+                                    recipient.display(2);
+                                }
+                            }
+                        } else {
+                            println!("Wallet not found");
+                        }
+                    }
+                    TransactionCommand::New {
+                        amount,
+                        fee,
+                        recipients,
+                    } => {
+                        let wallet = wallet::Wallet::load_wallet();
+                        if let Ok(wallet) = wallet {
+                            let sender_address = wallet.public_key.to_bytes();
+                            let secret_key = wallet.secret_key;
+                            let recipients = recipients
+                                .iter()
+                                .map(|recipient| {
+                                    let split_recipient =
+                                        recipient.split(":").collect::<Vec<&str>>();
+                                    let address = hex::decode(split_recipient[0])
+                                        .unwrap()
+                                        .as_slice()
+                                        .try_into()
+                                        .unwrap();
+                                    let amount = split_recipient[1].parse::<f64>().unwrap();
+                                    transactions::Recipient::new(address, amount)
+                                })
+                                .collect();
+                            let transaction = transactions::Transaction::create_transaction(
+                                sender_address,
+                                amount,
+                                fee,
+                                recipients,
+                                secret_key,
+                            );
+                            let mut queue = transactions::TransactionQueue::new();
+                            queue.add(transaction);
+                        } else {
+                            println!("Wallet not found");
+                        }
+                    }
+                }
+                return Ok(());
+            }
+        }
     }
 
     let (tx, _) = mpsc::channel::<PeerMessage>(100);
