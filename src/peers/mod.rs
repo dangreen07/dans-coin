@@ -68,7 +68,9 @@ impl PeerList {
                 panic!("Error connecting to peer");
             }
         };
-        stream.write_all(b"DAN-COIN-PROTOCOL").await.unwrap();
+        let our_message = Message::new(0, b"DAN-COIN-PROTOCOL".to_vec());
+        let our_message = our_message.convert_to_bytes();
+        stream.write_all(&our_message).await.unwrap();
         stream.write_all(b"\n").await.unwrap(); // Signal end of message
         let mut buffer = [0; 1024];
         let mut data: Vec<u8> = Vec::new();
