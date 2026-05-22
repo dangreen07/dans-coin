@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let (tx, mut rx) = mpsc::channel::<PeerMessage>(100);
+    let (tx, _) = mpsc::channel::<PeerMessage>(100);
 
     // By default, we start a server and also try our peers
     tokio::spawn(async move {
@@ -114,6 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         println!("Listening on {}", address);
+        // Now save our address to file so we can continue to use it on restart with the same port
+        let me = Peer::new(address.ip().to_string(), address.port());
+        let my_address = serde_json::to_string_pretty(&me).unwrap();
+        std::fs::write("my_address.json", my_address).unwrap();
 
         loop {
             let (mut socket, _) = listener.accept().await.unwrap();

@@ -116,9 +116,9 @@ impl Message {
 
 #[derive(Clone)]
 pub struct PeerMessage {
-    recieved: bool,
-    peer: Peer,
-    message: Message,
+    pub recieved: bool,
+    pub peer: Peer,
+    pub message: Message,
 }
 
 impl PeerMessage {
