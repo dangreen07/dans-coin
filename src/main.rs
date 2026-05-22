@@ -1,8 +1,4 @@
-// use blockchain::database::BlockChain;
-// use transactions::Recipient;
-// use transactions::Transaction;
-// use wallet::Wallet;
-
+use crate::peers::PingMessage;
 use clap::Parser;
 use clap::Subcommand;
 use peers::{Message, Peer, PeerMessage};
@@ -19,25 +15,7 @@ pub mod peers;
 pub mod transactions;
 pub mod wallet;
 
-// fn display_key(key: &[u8]) -> String {
-//     return hex::encode(key);
-// }
-
 // fn main() {
-//     let wallet = match Wallet::load_wallet() {
-//         Ok(wallet) => wallet,
-//         Err(_) => {
-//             let wallet = Wallet::new();
-//             wallet.save_wallet();
-//             wallet
-//         }
-//     };
-//     let public_key = wallet.public_key;
-//     let secret_key = wallet.secret_key;
-
-//     println!("Public key: {}", display_key(public_key.as_bytes()));
-//     println!("Secret key: {}", display_key(secret_key.as_bytes()));
-
 //     let transaction = Transaction::create_transaction(
 //         public_key.to_bytes(),
 //         10.0,
@@ -136,7 +114,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let peer = peer.split(":").collect::<Vec<&str>>();
         let address = peer[0].to_string();
         let port = peer[1].parse::<u16>().unwrap();
-        peer_list.add_peer(peers::Peer::new(address, port)).await;
+        peer_list
+            .add_peer_with_protocol(peers::Peer::new(address, port))
+            .await;
         peer_list.save_peers();
         return Ok(());
     }
@@ -282,11 +262,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Now the socket is closed
                 let message = Message::convert_from_bytes(&data);
                 if (message.message_type == 0) & (message.data.len() > 0) {
-                    socket.write_all(&message.data).await.unwrap(); // Send the message back
+                    let ping_message = PingMessage::new(address.port(), 1);
+                    let ping_message = ping_message.convert_to_bytes();
+                    let ping_message = Message::new(0, ping_message).convert_to_bytes();
+                    socket.write_all(&ping_message).await.unwrap(); // Send our ping message back
                     socket.write_all(b"\n").await.unwrap(); // Signal end of message
-                    let peer = Peer::new(address.ip().to_string(), address.port());
+                    let address = socket.peer_addr().unwrap();
+                    let recieved_ping_message = PingMessage::convert_from_bytes(&data);
+                    let peer = Peer::new(
+                        address.ip().to_string(),
+                        recieved_ping_message.listening_port,
+                    );
                     let mut peer_list = PeerList::load_peers().unwrap();
-                    peer_list.add_peer(peer.clone()).await;
+                    peer_list.add_peer_with_protocol(peer.clone()).await;
                     let message = PeerMessage::new(peer, message, true);
                     tx.send(message).await.unwrap();
                 }

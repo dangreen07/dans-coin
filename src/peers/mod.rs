@@ -59,7 +59,18 @@ impl PeerList {
         std::fs::write("peers.json", peer_list_string).unwrap();
     }
 
-    pub async fn add_peer(&mut self, peer: Peer) {
+    // For when we got a connection from a peer
+    pub fn add_peer(&mut self, peer: Peer) {
+        self.peers.push(peer);
+        self.last_added = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        self.save_peers();
+    }
+
+    // For when we are checking the status of a peer
+    pub async fn add_peer_with_protocol(&mut self, peer: Peer) {
         // Testing the peer connection
         let stream = TcpStream::connect(format!("{}:{}", peer.address, peer.port)).await;
         let mut stream = match stream {
@@ -68,7 +79,19 @@ impl PeerList {
                 panic!("Error connecting to peer");
             }
         };
-        let our_message = Message::new(0, b"DAN-COIN-PROTOCOL".to_vec());
+        let my_address = std::fs::read_to_string("my_address.json").unwrap();
+        let my_address: Result<Peer, serde_json::Error> = serde_json::from_str(&my_address);
+        let my_address = match my_address {
+            Ok(my_address) => my_address,
+            Err(_) => {
+                panic!(
+                    "Error loading your address, try running the server before connecting to a peer"
+                );
+            }
+        };
+        let ping_message = PingMessage::new(my_address.port, 1);
+        let ping_message = ping_message.convert_to_bytes();
+        let our_message = Message::new(0, ping_message);
         let our_message = our_message.convert_to_bytes();
         stream.write_all(&our_message).await.unwrap();
         stream.write_all(b"\n").await.unwrap(); // Signal end of message
@@ -106,11 +129,45 @@ impl PeerList {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PingMessage {
+    pub listening_port: u16,
+    pub protocol_version: u8,
+}
+
+impl PingMessage {
+    pub fn new(listening_port: u16, protocol_version: u8) -> Self {
+        PingMessage {
+            listening_port: listening_port,
+            protocol_version: protocol_version,
+        }
+    }
+
+    pub fn convert_to_bytes(&self) -> Vec<u8> {
+        let mut message_bytes: Vec<u8> = Vec::new();
+        let listening_port = self.listening_port.to_le_bytes();
+        message_bytes.extend_from_slice(&listening_port);
+        let protocol_version = self.protocol_version.to_le_bytes();
+        message_bytes.extend_from_slice(&protocol_version);
+        return message_bytes;
+    }
+
+    pub fn convert_from_bytes(message_bytes: &[u8]) -> Self {
+        let listening_port = u16::from_le_bytes(message_bytes[0..2].try_into().unwrap());
+        let protocol_version = u8::from_le_bytes(message_bytes[2..3].try_into().unwrap());
+        PingMessage {
+            listening_port: listening_port,
+            protocol_version: protocol_version,
+        }
+    }
+}
+
 // Message types
-// 0: Test Message
+// 0: Ping message, establishing peer connection
 
 #[derive(Clone)]
 pub struct Message {
+    pub version: u8,
     pub message_type: u16,
     pub data: Vec<u8>,
 }
@@ -118,6 +175,7 @@ pub struct Message {
 impl Message {
     pub fn new(message_type: u16, data: Vec<u8>) -> Self {
         Message {
+            version: 1,
             message_type: message_type,
             data: data,
         }
@@ -126,18 +184,23 @@ impl Message {
     pub fn convert_to_bytes(&self) -> Vec<u8> {
         let mut message_bytes: Vec<u8> = Vec::new();
         let peer_message_type = self.message_type.to_le_bytes();
+        let version = self.version.to_le_bytes();
+        message_bytes.extend_from_slice(&version);
         message_bytes.extend_from_slice(&peer_message_type);
         message_bytes.extend_from_slice(&self.data);
         return message_bytes;
     }
 
     pub fn convert_from_bytes(message_bytes: &[u8]) -> Self {
-        let message_type = message_bytes[0..2].to_vec();
+        let version = message_bytes[0..1].to_vec();
+        let version = u8::from_le_bytes(version.try_into().unwrap());
+        let message_type = message_bytes[1..3].to_vec();
         let message_type = u16::from_le_bytes(message_type.try_into().unwrap());
-        let data = message_bytes[1..].to_vec();
+        let data = message_bytes[2..].to_vec();
         Message {
             message_type: message_type,
             data: data,
+            version: version,
         }
     }
 }
