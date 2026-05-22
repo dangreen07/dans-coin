@@ -86,10 +86,6 @@ impl PeerList {
             }
         };
         let ping_message = PingMessage::new(my_address.port, 1);
-        println!(
-            "Sending Ping Message: {}, {}",
-            ping_message.listening_port, ping_message.protocol_version
-        );
         let ping_message = ping_message.convert_to_bytes();
         let our_message = Message::new(0, ping_message);
         let our_message = our_message.convert_to_bytes();

@@ -270,17 +270,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let address = socket.peer_addr().unwrap();
                     let recieved_ping_message = PingMessage::convert_from_bytes(&message.data);
-                    println!(
-                        "Recieved Ping Message: {}, {}",
-                        recieved_ping_message.listening_port,
-                        recieved_ping_message.protocol_version
-                    );
                     let peer = Peer::new(
                         address.ip().to_string(),
                         recieved_ping_message.listening_port,
                     );
                     let mut peer_list = PeerList::load_peers().unwrap();
-                    println!("Peer: {}:{}", peer.address, peer.port);
                     peer_list.add_peer_with_protocol(peer.clone()).await;
                     let message = PeerMessage::new(peer, message, true);
                     tx.send(message).await.unwrap();
@@ -348,9 +342,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(async move {
         loop {
-            let message = rx.recv().await.unwrap();
-            println!("Recieved message from {}", message.peer.address);
-            println!("Message type: {}", message.message.message_type);
+            let _ = rx.recv().await.unwrap();
+            // TODO: Something with this data
         }
     });
 
