@@ -146,9 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
         }
-    })
-    .await
-    .unwrap();
+    });
 
     tokio::spawn(async move {
         loop {
