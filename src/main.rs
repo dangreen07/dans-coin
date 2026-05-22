@@ -241,7 +241,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // By default, we start a server and also try our peers
     tokio::spawn(async move {
         println!("Starting server...");
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let my_address = std::fs::read_to_string("my_address.json").unwrap();
+        let my_address: Result<Peer, serde_json::Error> = serde_json::from_str(&my_address);
+        let mut address = "127.0.0.1:0".to_string();
+        if let Ok(my_address) = my_address {
+            address = format!("{}:{}", my_address.address, my_address.port);
+        }
+        let listener = TcpListener::bind(address).await.unwrap();
         let address = listener.local_addr().unwrap();
         println!("Listening on {}", address);
         // Now save our address to file so we can continue to use it on restart with the same port
@@ -290,6 +296,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let message = "PING".as_bytes().to_vec();
                 let message = Message::new(0, message);
                 let message = message.convert_to_bytes();
+                println!("Pinging {}:{}", peer.address, peer.port);
                 let stream = TcpStream::connect(format!("{}:{}", peer.address, peer.port)).await;
                 let mut stream = match stream {
                     Ok(stream) => stream,
