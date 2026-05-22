@@ -69,6 +69,7 @@ impl PeerList {
             }
         };
         stream.write_all(b"DAN-COIN-PROTOCOL").await.unwrap();
+        stream.write_all(b"\n").await.unwrap(); // Signal end of message
         let mut buffer = [0; 1024];
         let mut data: Vec<u8> = Vec::new();
         loop {
@@ -82,8 +83,12 @@ impl PeerList {
                 }
             };
             data.extend_from_slice(&buffer[..n]);
+            if data.ends_with(b"\n") {
+                // Message complete
+                data.pop(); // Remove delimiter
+                break;
+            }
         }
-        // Now the socket is closed
         let message = Message::convert_from_bytes(&data);
         if (message.message_type == 0) & (message.data.len() > 0) {
             // Adding the peer to the list

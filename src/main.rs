@@ -273,11 +273,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
                     data.extend_from_slice(&buffer[..n]);
+                    if data.ends_with(b"\n") {
+                        // Message complete
+                        data.pop(); // Remove delimiter
+                        break;
+                    }
                 }
                 // Now the socket is closed
                 let message = Message::convert_from_bytes(&data);
                 if (message.message_type == 0) & (message.data.len() > 0) {
                     socket.write_all(&message.data).await.unwrap(); // Send the message back
+                    socket.write_all(b"\n").await.unwrap(); // Signal end of message
                     let peer = Peer::new(address.ip().to_string(), address.port());
                     let mut peer_list = PeerList::load_peers().unwrap();
                     peer_list.add_peer(peer.clone()).await;
